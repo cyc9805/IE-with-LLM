@@ -1,3 +1,4 @@
+# manually ignored
 __pycache__/
 nohup.out
 wandb/
