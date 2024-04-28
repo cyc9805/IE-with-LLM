@@ -1,0 +1,6 @@
+{
+    "dataset_name": "dialog_re",
+    "model_name": "llama3-instruct",
+    "train_mode": false,
+    "output_dir": "/data/yongchan/ie_llm/outputs"
+}
