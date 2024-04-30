@@ -15,10 +15,12 @@ from transformers import Seq2SeqTrainingArguments, TrainingArguments
 from transformers.trainer_utils import EvalPrediction
 from transformers.training_args import TrainingArguments
 from transformers.tokenization_utils import PreTrainedTokenizer
-from utils import DataCollatorWithPadding, analyze_raw_data
+from utils import analyze_raw_data
 
 CUR_DIR=os.path.dirname(os.path.abspath(__file__))
 sys.path.append(f"{CUR_DIR}/..")
+
+from ie_llm.data import DataCollatorWithPadding
 
 @dataclass
 class llamaArgument(Seq2SeqTrainingArguments):
@@ -103,6 +105,7 @@ class ModelTrainer(Seq2SeqTrainer):
         model.eval()
         preds, refs = list(), list()
         for batch in tqdm(dataloader):
+            # Send batch to same device as model
             batch = self._prepare_inputs(batch)
             input_ids = batch["input_ids"]
             attention_mask = batch["attention_mask"] 

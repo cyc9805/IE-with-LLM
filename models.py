@@ -1,10 +1,13 @@
 from typing import List, Tuple
-from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments
+from transformers import AutoTokenizer, AutoModelForCausalLM, LlamaModel, LlamaConfig, LlamaForCausalLM
+from peft import LoraConfig, get_peft_model
 
 MODELS = {
     "llama3": "meta-llama/Meta-Llama-3-8B",
     "llama3-instruct": "meta-llama/Meta-Llama-3-8B-instruct"
 }
+
+# def IeLlmModel(LlamaModel):
 
 def load_model(model_name)-> Tuple[AutoModelForCausalLM, AutoTokenizer, List[str]]:
     if model_name not in MODELS:
@@ -22,4 +25,15 @@ def load_model(model_name)-> Tuple[AutoModelForCausalLM, AutoTokenizer, List[str
             tokenizer.convert_tokens_to_ids("<|eot_id|>")
         ]
     
+    config = LoraConfig(
+                r=64,
+                lora_alpha=128,
+                target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
+                lora_dropout=0.1,
+                bias="none"
+            )
+    
+    model = get_peft_model(model, config)
+
     return model, tokenizer, terminators
+

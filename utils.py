@@ -1,33 +1,9 @@
 import json
-import evaluate
 import numpy as np
 import logging
-from dataclasses import dataclass
-from typing import Any, List, Union
+from typing import List, Union
 
-@dataclass
-class DataCollatorWithPadding:
-    tokenizer:Any
-    generation_mode:bool=False
-
-    def __call__(self, encoded_texts):
-        batch = {}
-        self.tokenizer.padding_side = "left"
-
-        # padding을 하기위해 input_ids만 추출함
-        input_ids = [{"input_ids": x["input_ids"]} for x in encoded_texts]
-
-        # padding 실시
-        padded_input_ids = self.tokenizer.pad(input_ids, return_tensors="pt")
-
-        # padding이 실행된 결과를 batch에 저장
-        batch["input_ids"] = padded_input_ids["input_ids"]
-        batch["attention_mask"] = padded_input_ids["attention_mask"]
-        
-        batch["labels"] = [x["label"] for x in encoded_texts]
-        return batch
     
-
 def analyze_raw_data(
     preds: str=None,
     refs: str=None,
