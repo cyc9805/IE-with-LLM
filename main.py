@@ -3,17 +3,17 @@ import os
 import sys
 import json
 import logging
-import numpy as np
 from setproctitle import setproctitle
 from datetime import datetime
 from rich import print
 from rich.logging import RichHandler
+from transformers import DataCollatorForSeq2Seq
 CUR_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(f"{CUR_DIR}/..")
 
 from ie_llm.trainer import ModelTrainer, llamaArgument
 from ie_llm.models import load_model
-from ie_llm.data import prepare_dataset, DataCollatorWithPadding
+from ie_llm.data import prepare_dataset
 
 setproctitle('yongchan')
 
@@ -21,13 +21,36 @@ def main(cfg):
     
     # Set up logging
     now = datetime.now().strftime("%m_%d_%H_%M_%S")
-    output_dir = os.path.join(cfg["output_dir"], now)
+    train_mode = cfg["train_mode"]
+    model_dtype = cfg['model_dtype']
+    output_dir = os.path.join(cfg["output_dir"], 'train' if train_mode else 'test', now)
+    os.makedirs(output_dir, exist_ok=True)
+    if cfg['use_deepspeed']:
+        if model_dtype == 'bf16':
+            ds_config_path = "configs/ds_config/experimenting_a6000_nooffload_bf16.json"
+        elif model_dtype == 'fp16':
+            ds_config_path = "configs/ds_config/experimenting_a6000_nooffload_fp16.json"
+        else:
+            raise ValueError(f"model dtype should either be bf16 or fp16, but got {model_dtype}")
+        ds_config_file = json.load(open(ds_config_path, 'r'))
+    else:
+        ds_config_file = None
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.FileHandler(f"{output_dir}/run.log"),
+                  RichHandler()])
+
 
     # Load model
-    model, tokenizer, terminators = load_model(cfg['model_name'])
+    logging.info("Start loading model")
+    model, tokenizer, terminators = load_model(cfg['model_name'], cfg['set_peft'], cfg.get('peft_ckpt_dir', None), model_dtype)
 
     # Load Dataset
-    dataset = prepare_dataset(cfg["dataset_name"], tokenizer, cfg["cache_file_name"])
+    logging.info("Start loading dataset")
+    ie_setting = "open" if cfg["open_ie_setting"] else "closed"
+    dataset = prepare_dataset(cfg["dataset_name"], tokenizer, ie_setting, cfg["cache_file_name"])
 
     # Setup trainer
     training_args = llamaArgument(
@@ -57,7 +80,10 @@ def main(cfg):
         label_names=['labels'],
         auto_find_batch_size=cfg.get('auto_find_batch_size', False),
         report_to="wandb",
-        # max_steps=cfg['max_steps']
+        num_beams=cfg["num_beams"],
+        sample_for_evaluation=cfg.get("sample_for_evaluation", False),
+        num_samples=cfg.get("num_samples", 0),
+        deepspeed=ds_config_file
         # p_value=cfg.get('p_value', 0.3),
         # repetition_penalty=1.0,
         # no_repeat_ngram_size=3,
@@ -67,17 +93,22 @@ def main(cfg):
         model=model,
         tokenizer=tokenizer,
         args=training_args,
-        terminators=terminators,
+        terminators=terminators
         # compute_metrics=compute_metrics,
     )
     
-    trainer.data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+    # trainer.data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+    trainer.data_collator = DataCollatorForSeq2Seq(
+            tokenizer, return_tensors="pt", padding=True
+    )
 
-    if not cfg["train_mode"]:
-        trainer.evaluate(dataset['test'])
+    if not train_mode:
+        logging.info('Start evaluation ...')
+        trainer.set_eval_dataset(dataset['test'])
+        trainer.evaluate()
     else:
         trainer.train_dataset = dataset['train']
-        trainer.eval_dataset = dataset['validation']
+        trainer.set_eval_dataset(dataset['validation'])
         logging.info('Start training ...')
         trainer.train(resume_from_checkpoint=cfg.get("resume_from_checkpoint", None))
 

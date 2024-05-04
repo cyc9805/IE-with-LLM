@@ -1,65 +1,124 @@
 import json
 import numpy as np
 import logging
+import re
+import random
 from typing import List, Union
 
-    
+
+def enable_lora_finetuning(model):
+    """
+    Enables finetuning of the LoRA adapter.
+    """
+    for name, param in model.named_parameters():
+        if 'lora' in name:
+            param.requires_grad = True    
+
+
+def print_trainable_parameters(model):
+    """
+    Prints the number of trainable parameters in the model.
+    """
+    trainable_params = 0
+    all_param = 0
+    for _, param in model.named_parameters():
+        all_param += param.numel()
+        if param.requires_grad:
+            trainable_params += param.numel()
+    logging.info(
+        f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
+    )
+
+
 def analyze_raw_data(
     preds: str=None,
     refs: str=None,
     dataset_name: str=None
 ):
-    anlayzed_result = {"metric_scores": [], "avg_metric_score": None}
+    analyzed_result = {"f1_score": [], "micro_f1_score": 0}
+    total_tp, total_len_pred, total_len_ref = 0, 0, 0
     for pred, ref in zip(preds, refs):
-        anlayzed_result["metric_scores"].append(parse_and_compute_metrics(pred, ref, dataset_name))
+        metric_result = parse_and_compute_metrics(pred, ref, dataset_name)
+        total_tp += metric_result['tp']
+        total_len_pred += metric_result['len_pred']
+        total_len_ref += metric_result['len_ref']
+        analyzed_result["f1_score"].append(metric_result['f1_score'])
     
-    anlayzed_result["avg_metric_score"] = np.mean(anlayzed_result["metric_scores"])
+    analyzed_result['micro_f1_score'] = micro_f1_score(total_tp, total_len_pred, total_len_ref)
 
-    return anlayzed_result
+    return analyzed_result
 
 
 def parse_and_compute_metrics(pred, ref, dataset_name):
     # Parse differently based on dataset
+    parsed_pred = list()
     if dataset_name == 'dialog_re':
+        metric_result_template =  {"tp":0, "len_pred":0, "len_ref":0, "f1_score":0}
         try:
-            pred = pred[pred.find('{'):]
-            pred = pred[:pred.rfind('}')+1]
-            pred = json.loads(pred)
+            matches = re.findall(r'\{.*?\}', pred)
+            for match in matches:
+                match = json.loads(match)['relation']
+                if match not in parsed_pred:
+                    parsed_pred.append(match)
             # assert all([len(pred[key])==len(pred[list(pred.keys())[0]]) for key in pred])
-            pred = normalize_relation(pred['x'], pred['y'], pred['rid'], dataset_name)
-            ref = normalize_relation(ref['x'], ref['y'], ref['rid'], dataset_name)
-            metric_score = f1_score(pred=pred, ref=ref)
+            parsed_pred = normalize_relation(parsed_pred, dataset_name)
+            ref = normalize_relation(ref, dataset_name)
+            result = f1_score(pred=parsed_pred, ref=ref, metric_result_template=metric_result_template)
 
         except Exception as e:
             logging.info(f"Error parsing prediction: {e}")
-            metric_score = 0
+            metric_result_template["len_ref"] = len(ref)
+            result = metric_result_template
 
-    return metric_score
+    return result
 
 
-def normalize_relation(pred_x: List[str], pred_y: List[str], rid:List[Union[int, str]], dataset_name:str=None):
-    normalized_relation = []
+def normalize_relation(relations:List[str], dataset_name:str=None):
+    normalized_relations = []
     if dataset_name=='dialog_re':
-        for x, y, rids in zip(pred_x, pred_y, rid):
-            x = x.strip().lower().replace(' ', '')
-            y = y.strip().lower().replace(' ', '')
-            for rid in rids:
-                relation = str(rid)+''.join(sorted([x, y], key=lambda x: x[0]))
-                normalized_relation.append(relation)
-    return normalized_relation
+        for relation in relations:
+            relation = relation.strip().lower().replace('_', '').replace(' ', '')
+            normalized_relations.append(relation)
+    return normalized_relations
 
 
-def f1_score(pred, ref):
-    tp = 0
+def f1_score(pred, ref, metric_result_template):
+    tp, len_pred, len_ref = 0, len(pred), len(ref)
     for relation in pred:
         if relation in ref:
             tp += 1
     
-    precision = tp / len(pred)
-    recall = tp / len(ref)
+    precision = tp / len_pred
+    recall = tp / len_ref
 
     if not precision and not recall:
-        f1 = 0
+        f1_score = 0
     else:
-        f1 = 2 * precision * recall / (precision + recall)
-    return f1
+        f1_score = 2 * precision * recall / (precision + recall)
+
+    metric_result_template['tp'] = tp
+    metric_result_template['len_pred'] = len_pred
+    metric_result_template['len_ref'] = len_ref
+    metric_result_template['f1_score'] = f1_score
+
+    return metric_result_template
+
+
+def micro_f1_score(total_tp, total_len_pred, total_len_ref):
+    precision = total_tp / total_len_pred if total_len_pred > 0 else 0
+    recall = total_tp / total_len_ref if total_len_ref > 0 else 0
+
+    if not precision and not recall:
+        micro_f1_score = 0
+    else:
+        micro_f1_score = 2 * precision * recall / (precision + recall)
+
+    return micro_f1_score
+
+# def seed(seed = 42):
+#     random.seed(seed)
+#     np.random.seed(seed) 
+#     torch.manual_seed(seed)
+#     torch.cuda.manual_seed_all(seed)
+#     torch.backends.cudnn.benchmark = False
+#     torch.use_deterministic_algorithms(True)
