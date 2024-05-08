@@ -25,6 +25,7 @@ def main(cfg):
     model_dtype = cfg['model_dtype']
     output_dir = os.path.join(cfg["output_dir"], 'train' if train_mode else 'test', now)
     os.makedirs(output_dir, exist_ok=True)
+    json.dump(cfg, open(f"{output_dir}/run_config.json", "w"), indent=2)
     if cfg['use_deepspeed']:
         if model_dtype == 'bf16':
             ds_config_path = "configs/ds_config/experimenting_a6000_nooffload_bf16.json"
@@ -45,11 +46,12 @@ def main(cfg):
 
     # Load model
     logging.info("Start loading model")
-    model, tokenizer, terminators = load_model(cfg['model_name'], cfg['set_peft'], cfg.get('peft_ckpt_dir', None), model_dtype)
+    model, tokenizer, terminators = load_model(cfg['model_name'], cfg['peft_type'], cfg.get('peft_ckpt_dir', None), model_dtype)
 
     # Load Dataset
     logging.info("Start loading dataset")
     ie_setting = "open" if cfg["open_ie_setting"] else "closed"
+
     dataset = prepare_dataset(cfg["dataset_name"], tokenizer, ie_setting, cfg["cache_file_name"])
 
     # Setup trainer

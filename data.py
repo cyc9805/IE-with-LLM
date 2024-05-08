@@ -14,7 +14,6 @@ USER_TEMPLATE = """
 The dialogue input: {}
 Subject entity: {}
 Object entity: {}
-
 """
 
 @dataclass
@@ -54,7 +53,7 @@ class DataCollatorWithPadding:
         batch["input_ids"] = padded_input_ids["input_ids"]
         batch['attention_mask'] = padded_input_ids['attention_mask']
         batch["labels"] = padded_labels
-        return batch
+        return batch 
 
 
 def dialog_re_dataset_pre_func(batch_data, tokenizer, system_prompt, dataset_type):

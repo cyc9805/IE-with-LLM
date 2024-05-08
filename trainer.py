@@ -15,7 +15,7 @@ from transformers import Seq2SeqTrainingArguments, TrainingArguments
 from transformers.trainer_utils import EvalPrediction
 from transformers.training_args import TrainingArguments
 from transformers.tokenization_utils import PreTrainedTokenizer
-from utils import analyze_raw_data
+from utils import analyze_raw_data, set_seed
 
 CUR_DIR=os.path.dirname(os.path.abspath(__file__))
 sys.path.append(f"{CUR_DIR}/..")
@@ -74,7 +74,7 @@ class ModelTrainer(Seq2SeqTrainer):
         else:
             self.sampler = None
         if not sample_for_evaluation and num_samples > 0:
-            logging.warning("num_samples is set but use_sampler is False. num_samples will be ignored.")
+            logging.warning("num_samples is bigger than 0 but use_sampler is False. num_samples will be ignored.")
         
 
     def evaluate(
@@ -109,7 +109,7 @@ class ModelTrainer(Seq2SeqTrainer):
         batch_size = self.args.per_device_eval_batch_size
         data_collator = DataCollatorWithPadding(tokenizer=tokenizer, generation_mode=True)
 
-        # Sample 100 examples
+        set_seed(self.args.seed)
         dataloader = torch.utils.data.DataLoader(dataset,
                                                 sampler=self.sampler,
                                                 shuffle=False,

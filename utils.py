@@ -3,15 +3,16 @@ import numpy as np
 import logging
 import re
 import random
+from torch import manual_seed
 from typing import List, Union
 
 
-def enable_lora_finetuning(model):
+def enable_peft_finetuning(model, peft_type):
     """
     Enables finetuning of the LoRA adapter.
     """
     for name, param in model.named_parameters():
-        if 'lora' in name:
+        if peft_type in name:
             param.requires_grad = True    
 
 
@@ -115,10 +116,8 @@ def micro_f1_score(total_tp, total_len_pred, total_len_ref):
 
     return micro_f1_score
 
-# def seed(seed = 42):
-#     random.seed(seed)
-#     np.random.seed(seed) 
-#     torch.manual_seed(seed)
-#     torch.cuda.manual_seed_all(seed)
-#     torch.backends.cudnn.benchmark = False
-#     torch.use_deterministic_algorithms(True)
+def set_seed(seed = 42):
+    random.seed(seed)
+    np.random.seed(seed) 
+    manual_seed(seed)
+    
