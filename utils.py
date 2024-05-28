@@ -70,7 +70,7 @@ def analyze_raw_data(
         analyzed_result["total_recall"] = total_metric_result['total_recall']
         analyzed_result['micro_f1_score'] = total_metric_result['micro_f1_score']
 
-    return analyzed_result
+    return analyzed_result 
 
 
 def parse_and_compute_metrics_for_conversation_ie(preds, refs, dataset_name):
@@ -206,8 +206,10 @@ def micro_f1_score(total_tp, total_len_pred, total_len_ref):
     return metric_result_template
 
 
-# f1c는 일반 데이터보다 6배 더 많으므로 sampling rate을 1/6 만큼 가져가야됨
 def f1c_score(devp, data):
+    '''
+    A copy from DialogRE https://github.com/nlpdata/dialogre/blob/master/bert/evaluate.py
+    '''
     metric_result_template = {"total_precision":0, "total_recall":0, "f1c_score":0}
     index = 0
     precisions = []
@@ -255,7 +257,7 @@ def f1c_score(devp, data):
 
             precisions += [correct_sys/all_sys if all_sys != 0 else 1]
             recalls += [correct_sys/correct_gt if correct_gt != 0 else 0]
-
+    
     precision = sum(precisions) / len(precisions)
     recall = sum(recalls) / len(recalls)
     f_1 = 2*precision*recall/(precision+recall) if precision+recall != 0 else 0
@@ -266,7 +268,7 @@ def f1c_score(devp, data):
 
     return metric_result_template
 
-
+    
 def noise_data(
     input_text: Union[str, np.array],
     tokenizer: PreTrainedTokenizerBase,
@@ -275,7 +277,7 @@ def noise_data(
     r_denoising_config: Tuple[Tuple] = ((3, 0.15),),
     s_denoising: bool = True,
     s_probability: float = 0.5,
-    s_denoising_config: Tuple = (0.25),
+    s_denoising_config: Tuple = (0.25,),
     x_denoising: bool = True,
     x_probability: float = 0.25,
     x_denoising_config: Tuple[Tuple] = ((32, 0.5), (64, 0.2)),
@@ -318,7 +320,7 @@ def noise_data(
             end_indice = mask_indice ^ np.roll(mask_indice, -1, axis=-1) * mask_indice
             start_indices_to_replace = np.where(_sentinel_ids != 0)[0]
             end_indices_to_replace = np.where(end_indice != 0)[0]
-            mask_ids = np.array([tokenizer(mask_token.format(i))['input_ids'][1:] for i in range(sum(start_indice))], dtype=np.int32)   
+            mask_ids = [tokenizer(mask_token.format(i))['input_ids'][1:] for i in range(sum(start_indice))]
             if not label:
                 # Replace values at the found indices with values from c
                 for i, values in enumerate(mask_ids):

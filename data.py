@@ -4,7 +4,7 @@ import torch
 import logging
 import random
 import copy
-from typing import Any
+from typing import Any, List
 from utils import noise_data
 from datasets import Dataset, load_dataset
 from system_prompts import (
@@ -47,6 +47,7 @@ class DataCollatorWithPaddingForIeLLM:
     generate_intermediate_output: bool=False
     task: str=None
     prefix_lm_mode: str=None
+    evaluation_metrics: List[str]=None
 
     def __call__(self, encoded_texts):
         batch = {}
@@ -69,6 +70,30 @@ class DataCollatorWithPaddingForIeLLM:
                 batch['posterior_input_messages'] = posterior_input_messages
                 batch['questions'] = questions
                 batch['input_dialogs'] = input_dialogs
+            
+            if 'perplexity' in self.evaluation_metrics:
+                # if isinstance(encoded_texts[0]['labels'], dict):
+                #     concat_labels = [[IGNORE_INDEX] * len(x["input_ids"])+self.tokenizer(json.dumps(x['labels'], enusure_ascii=False))['input_ids'][1:] for x in encoded_texts]
+                # else:
+                #     concat_labels = [[IGNORE_INDEX] * len(x["input_ids"])+self.tokenizer(x['labels'])['input_ids'][1:] for x in encoded_texts]
+                # concat_labels = [{"input_ids": concat_label} for concat_label in concat_labels]
+                # padded_concat_labels = self.tokenizer.pad(concat_labels, return_tensors="pt")['input_ids']
+                # _padded_concat_labels = padded_concat_labels.clone()
+                # padded_concat_labels[:, :-1] = _padded_concat_labels[:, 1:]
+                # padded_concat_labels[:, -1] = IGNORE_INDEX
+                # batch['concat_labels'] = padded_concat_labels
+                concat_labels = [{"input_ids": [IGNORE_INDEX] * len(x["input_ids"])} for x in encoded_texts]
+                padded_concat_labels = self.tokenizer.pad(concat_labels)['input_ids']
+                if isinstance(padded_labels[0], dict):
+                    padded_concat_labels = [{"input_ids": x+self.tokenizer(json.dumps(y, ensure_ascii=False))['input_ids'][1:]} for x ,y in zip(padded_concat_labels, padded_labels)]
+                else:
+                    padded_concat_labels = [{"input_ids": x+self.tokenizer(y)['input_ids'][1:]} for x, y in zip(padded_concat_labels, padded_labels)]
+                self.tokenizer.padding_side = "right"
+                padded_concat_labels = self.tokenizer.pad(padded_concat_labels, return_tensors="pt")['input_ids']
+                _padded_concat_labels = padded_concat_labels.clone()
+                padded_concat_labels[:, :-1] = _padded_concat_labels[:, 1:]
+                padded_concat_labels[:, -1] = IGNORE_INDEX
+                batch['concat_labels'] = padded_concat_labels
         else:
             # Training을 할때는 padding을 right로 실시함
             self.tokenizer.padding_side = "right"
@@ -387,7 +412,7 @@ def prepare_dataset(dataset_name, tokenizer, task, generate_intermediate_output,
                     with_indices=True,
                     batched=True, 
                     batch_size=100, 
-                    num_proc=8, 
+                    num_proc=10, 
                     cache_file_name=cache_file_names[dataset_type]
                     )
 

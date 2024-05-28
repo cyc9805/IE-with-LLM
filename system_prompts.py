@@ -222,6 +222,6 @@ Guidelines:
 	4.	Avoid Repetition: Prevent unnecessary repetition unless contextually justified.
 
 Follow these guidelines to accurately predict and fill in the missing segments for any given input sequence.
-Output the final structure as a python list of JSON dictionary.
+Output the final structure as a python dictionary.
 Do not provide any explanation for your answer.
 '''

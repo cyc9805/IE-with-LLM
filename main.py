@@ -16,13 +16,9 @@ from ie_llm.data import prepare_dataset, DataCollatorWithPaddingForIeLLM
 
 setproctitle('yongchan')
 
-TASK_NAME_TO_METRIC = {
-    'denoising': 'micro_f1_score',
-    'open_ie': 'micro_f1_score',
-    'closed_ie': 'micro_f1_score',
-    'conversation_ie': 'f1c_score',
-}
+AVALIABLE_TASK = ['denoising', 'open_ie', 'closed_ie', 'conversation_ie']
 AVAILABLE_DATASET = ['dialog_re', 'allenai/c4', 'c4']
+AVAILABLE_EVALUATION_METRICS = ['f1', 'f1c', 'perplexity']
 
 def main(cfg):
     
@@ -34,13 +30,21 @@ def main(cfg):
     model_dtype = cfg['model_dtype']
     prefix_lm_mode = cfg['prefix_lm_mode']
     wandb_run_id = cfg.get('wandb_run_id', now)
+    evaluation_metrics = cfg.get('evaluation_metrics', ['perplexity'])
+    metric_for_best_model = cfg.get('metric_for_best_model', 'perplexity')
     model_for_predefined_intermediate_output = cfg.get('model_for_predefined_intermediate_output', None)
 
-    if task not in TASK_NAME_TO_METRIC.keys():
-        raise ValueError(f"task should be one of {list(TASK_NAME_TO_METRIC.keys())}, but got {task}")
+    if task not in AVALIABLE_TASK:
+        raise ValueError(f"task should be one of {AVALIABLE_TASK}, but got {task}")
     
     if dataset_name not in AVAILABLE_DATASET:
         raise ValueError(f"dataset_name should be one of {AVAILABLE_DATASET}, but got {dataset_name}")
+    
+    if not all([metric in AVAILABLE_EVALUATION_METRICS for metric in evaluation_metrics]):
+        raise ValueError(f"evaluation_metrics should be one of {AVAILABLE_EVALUATION_METRICS}, but got {evaluation_metrics}")
+    
+    if task != 'conversation_ie' and 'f1c' in evaluation_metrics:
+        raise ValueError(f"Elements of evaluation_metrics should be f1 or perplexity for {task} task, but got f1c")
     
     dataset_kwargs = {}
     if task == 'denoising':
@@ -49,7 +53,7 @@ def main(cfg):
                         "r_denoising_config": ((3, 0.15), (8, 0.15)),
                         "s_denoising": True,
                         "s_probability": 0.11,
-                        "s_denoising_config": (0.25),
+                        "s_denoising_config": (0.25,),
                         "x_denoising": True,
                         "x_probability": 0.445,
                         "x_denoising_config": ((3, 0.5), (8, 0.5), (12, 0.5), (32, 0.15)),
@@ -62,7 +66,6 @@ def main(cfg):
     os.environ["WANDB_PROJECT"] = "IE-LLM"
     os.environ["WANDB_RUN_ID"] = 'train_' if train_mode else 'test_' + task + '_' + wandb_run_id + '_' + now
 
-    metric_for_best_model = TASK_NAME_TO_METRIC[task]
     output_dir = os.path.join(cfg["output_dir"], 'train' if train_mode else 'test', task, now)
     os.makedirs(output_dir, exist_ok=True)
     json.dump(cfg, open(f"{output_dir}/run_config.json", "w"), indent=2)
@@ -135,6 +138,7 @@ def main(cfg):
         sample_for_evaluation=cfg.get("sample_for_evaluation", False),
         num_samples=cfg.get("num_samples", 0),
         task_name=task,
+        evaluation_metrics=evaluation_metrics,
         prefix_lm_mode=prefix_lm_mode,
         generate_intermediate_output=generate_intermediate_output,
         deepspeed=ds_config_path,
@@ -156,7 +160,8 @@ def main(cfg):
             generation_mode=False,
             generate_intermediate_output=generate_intermediate_output,
             task=task,
-            prefix_lm_mode=prefix_lm_mode)
+            prefix_lm_mode=prefix_lm_mode,
+            evaluation_metrics=evaluation_metrics)
 
 
     if not train_mode:

@@ -17,6 +17,7 @@ from transformers.training_args import TrainingArguments
 from transformers.tokenization_utils import PreTrainedTokenizer
 from data import get_prefix_position
 from utils import analyze_raw_data, set_seed
+from data import IGNORE_INDEX
 
 CUR_DIR=os.path.dirname(os.path.abspath(__file__))
 sys.path.append(f"{CUR_DIR}/..")
@@ -32,7 +33,7 @@ class llamaArgument(Seq2SeqTrainingArguments):
     sample_for_evaluation: bool = field(default=False, metadata={"help": "Whether to sample examples for evaluation."})
     num_samples: int = field(default=0, metadata={"help": "The number of samples to evaluate."})
     prefix_lm_mode: List[int] = field(default=None, metadata={"help": "Mode for prefix LM. 'all' means all input values attend each other. 'only_input_text' means only input text attend each other."})
-
+    evaluation_metrics: List[str] = field(default=None, metadata={"help": "The evaluation metrics to use. Available metrics are micro_f1_score, f1c_score and perplexity."}) 
 
 class ModelTrainer(Seq2SeqTrainer):
     def __init__(
@@ -112,12 +113,14 @@ class ModelTrainer(Seq2SeqTrainer):
             answers.append(response)
         return answers
 
+
     def _evaluation_loop(self, dataset)->Dict[str, float]:
         model = self.model
         tokenizer = self.tokenizer
         global_step = self.state.global_step
         terminators = self.terminators
         task_name = self.args.task_name
+        evaluation_metrics = self.args.evaluation_metrics
         num_samples = self.args.num_samples
         output_dir = f"{self.args.output_dir}/eval_step{global_step}"
         os.makedirs(output_dir, exist_ok=True)
@@ -137,7 +140,7 @@ class ModelTrainer(Seq2SeqTrainer):
                                                 drop_last=False)
         
         model.eval()
-        inputs, preds, refs, total_intermediate_outputs = list(), list(), list(), list()
+        inputs, preds, refs, total_loss, total_intermediate_outputs = list(), list(), list(), list(), list()
 
         generation_config = {
                 "do_sample": False,
@@ -162,13 +165,14 @@ class ModelTrainer(Seq2SeqTrainer):
             attention_mask = batch["attention_mask"] 
             prefix_positions = batch["prefix_positions"]
             labels = batch["labels"]
+
             if isinstance(labels[0], str):
                 labels = [json.loads(label) for label in labels]
-
+                
             if task_name == 'conversation_ie' and self.args.sample_for_evaluation:
                 if num_samples == 0:
                     break
-
+                    
                 dialog_indexes = [x['dialog_index'] for x in labels]
                 if extract_prev_dialog_index:
                     prev_dialog_index = labels[0]['dialog_index']
@@ -216,23 +220,48 @@ class ModelTrainer(Seq2SeqTrainer):
                 generation_config["prefix_positions"] = prefix_positions
                 generation_config["attention_mask"] = attention_mask
 
-            # if self.args.task_name == 'conversation_ie':
-            #     labels = batch['labels']
 
             predicted_ids = model.generate(
                                         input_ids=input_ids,
                                         **generation_config                       
                                         )
-            
+
             refs += labels
-            preds.extend(self._segment_answer(tokenizer, input_ids, predicted_ids))
+            preds.extend(self._segment_answer(tokenizer, input_ids, predicted_ids))             
             inputs += tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+            
+            # 아무리봐도 얘는 제대로된 ppl이 아니다...!
+            if 'perplexity' in evaluation_metrics:
+                labels = batch['concat_labels']
+                tokenizer.padding_side = "right"
+                # Ensure the generated_ids and labels are of the same length - criteria is on labels
+                # Pad the generated_ids if necessary
+                if predicted_ids.shape[-1] < labels.shape[-1]:
+                    predicted_ids = [{'input_ids': predicted_id} for predicted_id in predicted_ids]
+                    predicted_ids = tokenizer.pad(predicted_ids, padding='max_length', max_length=labels.shape[1], return_tensors="pt")['input_ids']
+                    # pad_size = labels.shape[-1] - predicted_ids.shape[-1]
+                    # predicted_ids = torch.cat([predicted_ids, torch.full((predicted_ids.shape[0], pad_size), -100, device=model.device)], dim=1)
+                elif predicted_ids.shape[-1] > labels.shape[-1]:
+                    predicted_ids = predicted_ids[:, :labels.shape[-1]]
+                
+                predicted_ids = self._prepare_inputs(predicted_ids)
+                labels = self._prepare_inputs(labels)
 
-
+                with torch.no_grad():
+                    output = model(predicted_ids, labels=labels)
+                total_loss.append(output.loss.item())
+                
         # Calculate metrics
-        logging.info("Compute f1 score")
-        analyzed_result = analyze_raw_data(preds=preds, refs=refs, task_name=task_name, dataset_name=dataset.config_name)
-
+        analyzed_result = dict()
+        for evaluation_metric in evaluation_metrics:
+            logging.info(f"Compute {evaluation_metric} score")
+            if evaluation_metric in ['f1', 'f1c']:
+                f1_result = analyze_raw_data(preds=preds, refs=refs, task_name=task_name, dataset_name=dataset.config_name)
+                analyzed_result.update(f1_result)
+            if evaluation_metric == 'perplexity':
+                perplexity = torch.exp(torch.tensor(total_loss).mean()).item()
+                analyzed_result["perplexity"] = perplexity
+                
         # Individual metric score
         contents = dict(
                 inputs=inputs,
@@ -240,19 +269,14 @@ class ModelTrainer(Seq2SeqTrainer):
             )
         
         # Average metric score
-        output = {
-            "total_precision": analyzed_result['total_precision'],
-            "total_recall": analyzed_result['total_recall']
-        }
+        output = dict()
 
-        if task_name == 'conversation_ie':
-            output["f1c_score"] = analyzed_result['f1c_score']
-            preprocessed_refs = list()
-            for ref in refs:
-                ref = [{"relation": relation, "trigger_word":trigger_word} for relation, trigger_word in zip(ref['relations'], ref['trigger_words'])]
-                preprocessed_refs.append(ref)
-            contents["refs"] = preprocessed_refs
-        else:
+        if 'perplexity' in evaluation_metrics:
+            output["perplexity"] = analyzed_result["perplexity"]
+
+        if 'f1' in evaluation_metrics:
+            output["total_precision"] = analyzed_result['total_precision']
+            output["total_recall"] = analyzed_result['total_recall']
             contents.update({
                 "refs": refs,
                 "precisions": analyzed_result['precision'],
@@ -260,9 +284,20 @@ class ModelTrainer(Seq2SeqTrainer):
                 "f1_score": analyzed_result['f1_score']
             })
             output["micro_f1_score"] = analyzed_result['micro_f1_score']
+        
+        if 'flc' in evaluation_metrics:
+            output["total_precision"] = analyzed_result['total_precision']
+            output["total_recall"] = analyzed_result['total_recall']
+            output["f1c_score"] = analyzed_result['f1c_score']
+            preprocessed_refs = list()
+            for ref in refs:
+                ref = [{"relation": relation, "trigger_word":trigger_word} for relation, trigger_word in zip(ref['relations'], ref['trigger_words'])]
+                preprocessed_refs.append(ref)
+            contents["refs"] = preprocessed_refs
 
         if self.args.generate_intermediate_output:
            contents['intermediate_outputs'] = total_intermediate_outputs
+
         pred_dataset = Dataset.from_dict(contents)
         df = pred_dataset.to_pandas()
         pred_result_path = f"{output_dir}/prediction.csv"

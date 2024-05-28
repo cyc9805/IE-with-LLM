@@ -7,6 +7,7 @@
     "peft_ckpt_dir": null,
     "prefix_lm_mode": "only_input_text",
     "task": "conversation_ie",
+    "evaluation_metrics": ["perplexity", "f1"],
     "generate_intermediate_output": false,
     "model_dtype": "default",
     "wandb_run_id": "lora_finetuned_ie_no_prefix_batch_size_2",
