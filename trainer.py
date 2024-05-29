@@ -165,9 +165,6 @@ class ModelTrainer(Seq2SeqTrainer):
             attention_mask = batch["attention_mask"] 
             prefix_positions = batch["prefix_positions"]
             labels = batch["labels"]
-
-            if isinstance(labels[0], str):
-                labels = [json.loads(label) for label in labels]
                 
             if task_name == 'conversation_ie' and self.args.sample_for_evaluation:
                 if num_samples == 0:
@@ -214,43 +211,65 @@ class ModelTrainer(Seq2SeqTrainer):
                 tokenizer.padding_side = "left"
                 input_ids = tokenizer.pad(input_ids, return_tensors="pt")
                 attention_mask = input_ids["attention_mask"]
-                prefix_positions = [get_prefix_position(x, self.args.prefix_lm_mode) for x in input_ids['input_ids']]
+                prefix_positions = [get_prefix_position(x, task_name, self.args.prefix_lm_mode, tokenizer) for x in input_ids['input_ids']]
                 input_ids = self._prepare_inputs(input_ids['input_ids'])
 
                 generation_config["prefix_positions"] = prefix_positions
-                generation_config["attention_mask"] = attention_mask
+                generation_config["attention_mask"] = attention_mask   
 
+            if 'f1c' in evaluation_metrics or 'f1' in evaluation_metrics:
+                if isinstance(labels[0], str):
+                    labels = [json.loads(label) for label in labels]
+                    
+                predicted_ids = model.generate(
+                                            input_ids=input_ids,
+                                            **generation_config                       
+                                            )
+                input = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+                pred = self._segment_answer(tokenizer, input_ids, predicted_ids)
+                refs += labels   
 
-            predicted_ids = model.generate(
-                                        input_ids=input_ids,
-                                        **generation_config                       
-                                        )
-
-            refs += labels
-            preds.extend(self._segment_answer(tokenizer, input_ids, predicted_ids))             
-            inputs += tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-            
-            # 아무리봐도 얘는 제대로된 ppl이 아니다...!
             if 'perplexity' in evaluation_metrics:
-                labels = batch['concat_labels']
-                tokenizer.padding_side = "right"
-                # Ensure the generated_ids and labels are of the same length - criteria is on labels
-                # Pad the generated_ids if necessary
-                if predicted_ids.shape[-1] < labels.shape[-1]:
-                    predicted_ids = [{'input_ids': predicted_id} for predicted_id in predicted_ids]
-                    predicted_ids = tokenizer.pad(predicted_ids, padding='max_length', max_length=labels.shape[1], return_tensors="pt")['input_ids']
-                    # pad_size = labels.shape[-1] - predicted_ids.shape[-1]
-                    # predicted_ids = torch.cat([predicted_ids, torch.full((predicted_ids.shape[0], pad_size), -100, device=model.device)], dim=1)
-                elif predicted_ids.shape[-1] > labels.shape[-1]:
-                    predicted_ids = predicted_ids[:, :labels.shape[-1]]
-                
-                predicted_ids = self._prepare_inputs(predicted_ids)
-                labels = self._prepare_inputs(labels)
+                if isinstance(labels[0], dict):
+                    labels = [json.dumps(label, ensure_ascii=False) for label in labels]
+
+                concat_input_ids = []
+                for input_id in input_ids:
+                    while input_id[-1] == tokenizer.pad_token:
+                        input_id = input_id[:-1]
+                    concat_input_ids.append(input_id.tolist())
+
+                padded_concat_input_ids = []
+                padded_concat_labels = []
+
+                for x, y in zip(concat_input_ids, labels):
+                    input_id = x + self.tokenizer(y)['input_ids'][1:]
+                    label = [IGNORE_INDEX]*len(x) + self.tokenizer(y)['input_ids'][1:]
+                    label = label[1:] + [IGNORE_INDEX]
+                    padded_concat_input_ids.append({"input_ids": input_id})
+                    padded_concat_labels.append({"input_ids": label})
+
+                self.tokenizer.padding_side = "left"
+                padded_concat_input_ids = self.tokenizer.pad(padded_concat_input_ids, return_tensors="pt")
+                padded_concat_labels = self.tokenizer.pad(padded_concat_labels, return_tensors="pt")
+
+                attention_mask = padded_concat_input_ids["attention_mask"]
+                prefix_positions = [get_prefix_position(x, task_name, self.args.prefix_lm_mode, tokenizer) for x in padded_concat_input_ids['input_ids']]
+
+                padded_concat_input_ids = self._prepare_inputs(padded_concat_input_ids['input_ids'])
+                padded_concat_labels = self._prepare_inputs(padded_concat_labels['input_ids'])
 
                 with torch.no_grad():
-                    output = model(predicted_ids, labels=labels)
+                    output = model(padded_concat_input_ids, labels=padded_concat_labels, attention_mask=attention_mask, prefix_positions=prefix_positions)
                 total_loss.append(output.loss.item())
                 
+                if len(evaluation_metrics) == 1:
+                    input = tokenizer.batch_decode(padded_concat_input_ids, skip_special_tokens=True)
+                    pred = ['No prediction'] * len(labels)
+
+            inputs += input
+            preds.extend(pred)
+
         # Calculate metrics
         analyzed_result = dict()
         for evaluation_metric in evaluation_metrics:
@@ -277,13 +296,13 @@ class ModelTrainer(Seq2SeqTrainer):
         if 'f1' in evaluation_metrics:
             output["total_precision"] = analyzed_result['total_precision']
             output["total_recall"] = analyzed_result['total_recall']
+            output["micro_f1_score"] = analyzed_result['micro_f1_score']
             contents.update({
                 "refs": refs,
                 "precisions": analyzed_result['precision'],
                 "recalls": analyzed_result['recall'],
                 "f1_score": analyzed_result['f1_score']
             })
-            output["micro_f1_score"] = analyzed_result['micro_f1_score']
         
         if 'flc' in evaluation_metrics:
             output["total_precision"] = analyzed_result['total_precision']

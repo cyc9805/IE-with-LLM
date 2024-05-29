@@ -32,6 +32,7 @@ def main(cfg):
     wandb_run_id = cfg.get('wandb_run_id', now)
     evaluation_metrics = cfg.get('evaluation_metrics', ['perplexity'])
     metric_for_best_model = cfg.get('metric_for_best_model', 'perplexity')
+    generate_intermediate_output = cfg["generate_intermediate_output"]
     model_for_predefined_intermediate_output = cfg.get('model_for_predefined_intermediate_output', None)
 
     if task not in AVALIABLE_TASK:
@@ -45,6 +46,12 @@ def main(cfg):
     
     if task != 'conversation_ie' and 'f1c' in evaluation_metrics:
         raise ValueError(f"Elements of evaluation_metrics should be f1 or perplexity for {task} task, but got f1c")
+    
+    if task == 'denoising' and generate_intermediate_output:
+        raise ValueError(f"generate_intermediate_output should be False for denoising task, but got True")
+    
+    if task != 'denoising' and dataset_name == 'c4':
+        raise ValueError(f"c4 is not supported for c4 dataset")
     
     dataset_kwargs = {}
     if task == 'denoising':
@@ -64,7 +71,7 @@ def main(cfg):
         dataset_kwargs["denoise_config"] = denoise_config
 
     os.environ["WANDB_PROJECT"] = "IE-LLM"
-    os.environ["WANDB_RUN_ID"] = 'train_' if train_mode else 'test_' + task + '_' + wandb_run_id + '_' + now
+    os.environ["WANDB_RUN_ID"] = f"{'train_' if train_mode else 'test_'}{task}_{wandb_run_id}_{now}"
 
     output_dir = os.path.join(cfg["output_dir"], 'train' if train_mode else 'test', task, now)
     os.makedirs(output_dir, exist_ok=True)
@@ -93,7 +100,6 @@ def main(cfg):
 
     # Load Dataset
     logging.info("Start loading dataset")
-    generate_intermediate_output = cfg["generate_intermediate_output"]
     dataset = prepare_dataset(
         dataset_name=dataset_name, 
         tokenizer=tokenizer, 
@@ -101,6 +107,7 @@ def main(cfg):
         generate_intermediate_output=generate_intermediate_output,
         model_for_predefined_intermediate_output=model_for_predefined_intermediate_output,
         cache_file_name=cfg["cache_file_name"],
+        seed=cfg["seed"],
         **dataset_kwargs
         )
 

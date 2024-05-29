@@ -2,11 +2,11 @@ import os
 import json
 import torch
 import logging
-import random
+import numpy as np
 import copy
 from typing import Any, List
-from utils import noise_data
-from datasets import Dataset, load_dataset
+from utils import noise_data, set_seed
+from datasets import DatasetDict, load_dataset
 from system_prompts import (
     open_dialog_re_system_prompt, 
     closed_dialog_re_system_prompt, 
@@ -70,30 +70,7 @@ class DataCollatorWithPaddingForIeLLM:
                 batch['posterior_input_messages'] = posterior_input_messages
                 batch['questions'] = questions
                 batch['input_dialogs'] = input_dialogs
-            
-            if 'perplexity' in self.evaluation_metrics:
-                # if isinstance(encoded_texts[0]['labels'], dict):
-                #     concat_labels = [[IGNORE_INDEX] * len(x["input_ids"])+self.tokenizer(json.dumps(x['labels'], enusure_ascii=False))['input_ids'][1:] for x in encoded_texts]
-                # else:
-                #     concat_labels = [[IGNORE_INDEX] * len(x["input_ids"])+self.tokenizer(x['labels'])['input_ids'][1:] for x in encoded_texts]
-                # concat_labels = [{"input_ids": concat_label} for concat_label in concat_labels]
-                # padded_concat_labels = self.tokenizer.pad(concat_labels, return_tensors="pt")['input_ids']
-                # _padded_concat_labels = padded_concat_labels.clone()
-                # padded_concat_labels[:, :-1] = _padded_concat_labels[:, 1:]
-                # padded_concat_labels[:, -1] = IGNORE_INDEX
-                # batch['concat_labels'] = padded_concat_labels
-                concat_labels = [{"input_ids": [IGNORE_INDEX] * len(x["input_ids"])} for x in encoded_texts]
-                padded_concat_labels = self.tokenizer.pad(concat_labels)['input_ids']
-                if isinstance(padded_labels[0], dict):
-                    padded_concat_labels = [{"input_ids": x+self.tokenizer(json.dumps(y, ensure_ascii=False))['input_ids'][1:]} for x ,y in zip(padded_concat_labels, padded_labels)]
-                else:
-                    padded_concat_labels = [{"input_ids": x+self.tokenizer(y)['input_ids'][1:]} for x, y in zip(padded_concat_labels, padded_labels)]
-                self.tokenizer.padding_side = "right"
-                padded_concat_labels = self.tokenizer.pad(padded_concat_labels, return_tensors="pt")['input_ids']
-                _padded_concat_labels = padded_concat_labels.clone()
-                padded_concat_labels[:, :-1] = _padded_concat_labels[:, 1:]
-                padded_concat_labels[:, -1] = IGNORE_INDEX
-                batch['concat_labels'] = padded_concat_labels
+
         else:
             # Training을 할때는 padding을 right로 실시함
             self.tokenizer.padding_side = "right"
@@ -151,7 +128,7 @@ def extract_start_and_end_index(src_text, start_tgt_text, end_tgt_text, tokenize
 
 # all 모든 input 값들이 서로 attend하게 만들기
 # 두번째는 주어진 context dialog에만 서로 attend하게 만들기
-def get_prefix_position(x, task, prefix_lm_mode, tokenizer):
+def get_prefix_position(x, task_name, prefix_lm_mode, tokenizer):
 
     strip_template = lambda template: list(map(lambda x: x.strip(), template.split('{}')))        
 
@@ -172,9 +149,9 @@ def get_prefix_position(x, task, prefix_lm_mode, tokenizer):
         
         start_tgt_text = strip_template(DIALOG_TEMPLATE)[0]
 
-        if task in ['open_ie', 'closed_ie', 'conversation_ie']:
+        if task_name in ['open_ie', 'closed_ie', 'conversation_ie']:
             end_tgt_text = strip_template(QUESTION_DIALOG_TEMPLATE)[0]
-        elif task == 'denoising': 
+        elif task_name == 'denoising': 
             end_tgt_text = "<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
 
         start_index, end_index = extract_start_and_end_index(x, start_tgt_text, end_tgt_text, tokenizer)
@@ -185,7 +162,16 @@ def get_prefix_position(x, task, prefix_lm_mode, tokenizer):
     return [start_pos, end_pos]
 
     
-def dataset_pre_func(batch_data, indexes, tokenizer, task, dataset_type, generate_intermediate_output, model_for_predefined_intermediate_output, **kwargs):
+def dataset_pre_func(
+        batch_data, 
+        indexes, 
+        tokenizer, 
+        task, 
+        dataset_name,
+        dataset_type, 
+        generate_intermediate_output, 
+        model_for_predefined_intermediate_output, 
+        **kwargs):
 
     def _create_input_and_label(tokenizer, dataset_type, system_prompt, user_input, labels, preprocessed_input):
         if dataset_type == 'train':
@@ -213,21 +199,54 @@ def dataset_pre_func(batch_data, indexes, tokenizer, task, dataset_type, generat
         preprocessed_input['input_dialog'] = []
     
     for index, input_ids, labels in zip(indexes, batch_data['input_ids'], batch_data['labels']):
-        data = {'input_ids': input_ids, 'labels': labels}
+        # data = {'input_ids': input_ids, 'labels': labels}
 
         # For denoising task
-        if task == 'denoising':
-            if isinstance(data['input_ids'], list):
-                input_text = ' \n'.join(list(map(lambda x:x.strip(), data['input_ids'])))
-            elif isinstance(data['input_ids'], str):
-                input_text = data['input_ids']
+        if task == 'denoising' and dataset_name == 'c4':
+            if isinstance(input_ids, list):
+                input_text = ' \n'.join(list(map(lambda x:x.strip(), input_ids)))
+            elif isinstance(input_ids, str):
+                input_text = input_ids
+            
+            split_upper_bound = 1000
+            split_lower_bound = 100
+            total_input_text_len = len(input_text)
+            if total_input_text_len > split_upper_bound:
+                # total_splited_input_ids = input_text.split('.')
+                # while total_input_text_len > split_upper_bound:
+                #     splited_input_ids = list()
+                #     input_text_len = 0
+                #     while input_text_len < split_upper_bound and total_splited_input_ids:
+                #         input_text = total_splited_input_ids.pop(0)
+                #         input_text_len += len(input_text)
+                #         splited_input_ids.append(input_text)
+                #     joined_input_ids = '.'.join(splited_input_ids)+'.'
+                #     batch_data['input_ids'].append(joined_input_ids)
+                #     # append dummpy labels
+                #     batch_data['labels'].append(labels)
+                #     input_text_len = len(joined_input_ids)
+                #     total_input_text_len -= input_text_len
+                # if total_splited_input_ids and total_input_text_len > split_lower_bound:
+                #     input_text = '.'.join(total_splited_input_ids)+'.'
+                # else:
+                #     input_text = batch_data['input_ids'].pop(-1)
+                #     labels = batch_data['labels'].pop(-1)
+
+                total_splited_input_ids = input_text.split('.')
+                splited_input_ids = list()
+                input_text_len = 0
+                while input_text_len < split_upper_bound:
+                    input_text = total_splited_input_ids.pop(0)
+                    input_text_len += len(input_text)+1
+                    splited_input_ids.append(input_text)
+                input_text = '.'.join(splited_input_ids)+'.'
+                    
             denoise_config = kwargs['denoise_config']
             iterate_num = 1
 
         # For IE tasks
         elif task in ['open_ie', 'closed_ie']:
-            joined_input_id = '['+', '.join(list(map(lambda x: '"'+x+'"', data['input_ids'])))+']'
-            labels = data['labels']
+            joined_input_id = '['+', '.join(list(map(lambda x: '"'+x+'"', input_ids)))+']'
             iterate_num = len(labels['x'])
 
             ##################### using intermediate result ####################
@@ -271,11 +290,10 @@ def dataset_pre_func(batch_data, indexes, tokenizer, task, dataset_type, generat
         elif task == 'conversation_ie':
             joined_input_ids = []
             stacked_input_ids = []
-            for input_id in data['input_ids']:
+            for input_id in input_ids:
                 input_id = '"'+input_id+'"'
                 stacked_input_ids.append(input_id)
                 joined_input_ids.append('['+', '.join(stacked_input_ids)+']')
-            labels = data['labels']
             iterate_num = len(labels['x'])  
 
         if dataset_type == 'train':
@@ -321,7 +339,7 @@ def dataset_pre_func(batch_data, indexes, tokenizer, task, dataset_type, generat
                     preprocessed_input['question'].append(question)
                     preprocessed_input['input_dialog'].append(input_dialog)
                 else:
-                    if task == "denoising":
+                    if task == "denoising":     
                         joined_input_id, label = noise_data(input_text, tokenizer, **denoise_config)
                         label_str = json.dumps(label, ensure_ascii=False)
                         user_input = DIALOG_TEMPLATE.format(joined_input_id)
@@ -329,7 +347,7 @@ def dataset_pre_func(batch_data, indexes, tokenizer, task, dataset_type, generat
                                         
                     elif task in ['open_ie', 'closed_ie']:
                         user_input = USER_TEMPLATE.format(joined_input_id, subject, object)
-                        labels_str = data['labels']['r'][i]
+                        labels_str = labels['r'][i]
                         if model_for_predefined_intermediate_output:
                             if MERGE_DIALOG_AND_TABLE:
                                 full_dialog = DIALOG_TEMPLATE.format(joined_input_id)
@@ -355,7 +373,7 @@ def dataset_pre_func(batch_data, indexes, tokenizer, task, dataset_type, generat
                             if j == len(joined_input_ids)-1:
                                 temp_labels = copy.deepcopy(labels)
                                 temp_labels['dialog_index'] = index
-                                temp_labels['input_text'] = data['input_ids']
+                                temp_labels['input_text'] = input_ids
                             else:
                                 temp_labels = {'dialog_index':index}
                             temp_labels['relations'] = relations
@@ -365,7 +383,7 @@ def dataset_pre_func(batch_data, indexes, tokenizer, task, dataset_type, generat
     return preprocessed_input
 
 
-def prepare_dataset(dataset_name, tokenizer, task, generate_intermediate_output, model_for_predefined_intermediate_output, cache_file_name, **kwargs):
+def prepare_dataset(dataset_name, tokenizer, task, generate_intermediate_output, model_for_predefined_intermediate_output, cache_file_name, seed, **kwargs):
     """Name of the column for huggingface training should be fixed to 'input_ids' and 'labels'"""
 
     if task == 'denoising' and generate_intermediate_output:
@@ -398,21 +416,38 @@ def prepare_dataset(dataset_name, tokenizer, task, generate_intermediate_output,
         validation=validation_cache_name,
         test=test_cache_name)
     
+    num_proc = 10 if dataset_name == 'dialog_re' else 20
     if dataset_name == 'dialog_re':
         dataset = dataset.select_columns(['dialog', 'relation_data']).rename_columns(dict(dialog='input_ids', relation_data='labels'))
     
     if dataset_name == 'c4':
+        # sample subset of the dataset  
+        set_seed(seed)
+
+        train_dataset = dataset['train']
+        random_indices = np.random.choice(len(train_dataset), 50000, replace=True)
+        train_dataset = train_dataset.select(random_indices)
+
+        valid_dataset = dataset['validation']
+        random_indices = np.random.choice(len(valid_dataset), 2000, replace=True)
+        valid_dataset = valid_dataset.select(random_indices)
+
+        dataset = DatasetDict(
+            train=train_dataset,
+            validation=valid_dataset
+        )
+
         dataset = dataset.select_columns(['url', 'text']).rename_columns(dict(text='input_ids'))
 
     for dataset_type in dataset:
         if model_for_predefined_intermediate_output is None or dataset_type == 'test':
             dataset[dataset_type] = dataset[dataset_type].map(
                 lambda x, indexes: dataset_pre_func(
-                    x, indexes, tokenizer, task, dataset_type, generate_intermediate_output, model_for_predefined_intermediate_output, **kwargs), 
+                    x, indexes, tokenizer, task, dataset_name, dataset_type, generate_intermediate_output, model_for_predefined_intermediate_output, **kwargs), 
                     with_indices=True,
                     batched=True, 
                     batch_size=100, 
-                    num_proc=10, 
+                    num_proc=num_proc, 
                     cache_file_name=cache_file_names[dataset_type]
                     )
 
