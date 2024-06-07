@@ -385,7 +385,7 @@ def noise_data(
         if mask_token:
             mask_id = tokenizer(mask_token.format(0), return_tensors='np')['input_ids'][0, 1:]
         else:
-            mask_id = len(tokenizer)-1
+            mask_id = np.array([len(tokenizer)-1])
 
         filtered_input_ids = np.concatenate([filtered_input_ids, mask_id])
         filtered_labels = np.concatenate([mask_id, filtered_labels])

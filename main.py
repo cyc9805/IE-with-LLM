@@ -65,9 +65,11 @@ def main(cfg):
                         "x_probability": 0.445,
                         "x_denoising_config": ((3, 0.5), (8, 0.5), (12, 0.5), (32, 0.15)),
                         "label_format": "json",
-                        "mask_token": '<extra_id_{}>'}
+                        "mask_token": None}
+                        # "mask_token": '<extra_id_{}>'}
         
         logging.info(f"Configuration for denoising task: {denoise_config}")
+        cfg.update(denoise_config)
         dataset_kwargs["denoise_config"] = denoise_config
 
     os.environ["WANDB_PROJECT"] = "IE-LLM"

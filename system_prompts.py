@@ -204,19 +204,19 @@ You must include as much relationships as possible between speakers in the dialo
 '''
 
 denoising_task_prompt = '''
-You are tasked with predicting and reconstructing missing segments in a given text sequence. The input will have parts replaced by tokens like <extra_id_0>, <extra_id_1>, etc. Your goal is to fill in these placeholders with contextually appropriate text.
+You are tasked with predicting and reconstructing missing segments in a given text sequence. The input will have parts replaced by mask tokens like {0}, {1}, etc. Your goal is to fill in these placeholders with contextually appropriate text.
 
 Input and Output Example:
 
 The dialogue input:
-Mr. Dursley was the director of a firm called <extra_id_0>, which made <extra_id_1>. He was a big, solid man with a bald head. Mrs. Dursley was thin and <extra_id_2> neck, which came in very useful as she spent so much of her time <extra_id_3>. The Dursleys had a small son called Dudley and <extra_id_4>.
+Mr. Dursley was the director of a firm called {0}, which made {1}. He was a big, solid man with a bald head. Mrs. Dursley was thin and {2} neck, which came in very useful as she spent so much of her time {3}.
 
 Output:
-{"<extra_id_0>": "Grunnings", "<extra_id_1>": "drills", "<extra_id_2>": "had a long", "<extra_id_3>": "craning over garden fences"}
+{{"{0}": "Grunnings", "{1}": "drills", "{2}": "had a long", "{3}": "craning over garden fences"}}
 
 Guidelines:
 
-	1.	Contextual Accuracy: Use surrounding text to infer the appropriate content for each <extra_id_x> token.
+	1.	Contextual Accuracy: Use surrounding text to infer the appropriate content for each amsk token.
 	2.	Coherence: Ensure the sequence flows naturally and maintains the narrative’s integrity.
 	3.	Detail Preservation: Incorporate details that align with the text’s tone and style.
 	4.	Avoid Repetition: Prevent unnecessary repetition unless contextually justified.

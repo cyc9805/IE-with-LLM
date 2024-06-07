@@ -16,7 +16,7 @@ from system_prompts import (
 )
 from dataclasses import dataclass
 
-##### 이거 나중에 삭제하기 ######
+# TODO: Refactor this keyword
 PROMPT_NUM = 1
 MERGE_DIALOG_AND_TABLE = True
 ###############################
@@ -187,6 +187,15 @@ def dataset_pre_func(
         preprocessed_input['labels'].append(labels)
 
     system_prompt = SYSTEM_PROMPTS[task]
+    if task == 'denoising':
+        denoise_config = kwargs['denoise_config']
+        mask_token = denoise_config['mask_token']
+        if mask_token:
+            mask_tokens = [mask_token.format(i) for i in range(4)]
+        else:
+            mask_tokens = [tokenizer.decode(len(tokenizer)-1-i) for i in range(4)]
+        system_prompt = system_prompt.format(*mask_tokens)        
+
     preprocessed_input = {'input_ids': [], 'labels': []}
 
     # Create dummy inputs for labels if labels is not present in batch_data
@@ -202,47 +211,47 @@ def dataset_pre_func(
         # data = {'input_ids': input_ids, 'labels': labels}
 
         # For denoising task
-        if task == 'denoising' and dataset_name == 'c4':
-            if isinstance(input_ids, list):
-                input_text = ' \n'.join(list(map(lambda x:x.strip(), input_ids)))
-            elif isinstance(input_ids, str):
-                input_text = input_ids
-            
-            split_upper_bound = 1000
-            split_lower_bound = 100
-            total_input_text_len = len(input_text)
-            if total_input_text_len > split_upper_bound:
-                # total_splited_input_ids = input_text.split('.')
-                # while total_input_text_len > split_upper_bound:
-                #     splited_input_ids = list()
-                #     input_text_len = 0
-                #     while input_text_len < split_upper_bound and total_splited_input_ids:
-                #         input_text = total_splited_input_ids.pop(0)
-                #         input_text_len += len(input_text)
-                #         splited_input_ids.append(input_text)
-                #     joined_input_ids = '.'.join(splited_input_ids)+'.'
-                #     batch_data['input_ids'].append(joined_input_ids)
-                #     # append dummpy labels
-                #     batch_data['labels'].append(labels)
-                #     input_text_len = len(joined_input_ids)
-                #     total_input_text_len -= input_text_len
-                # if total_splited_input_ids and total_input_text_len > split_lower_bound:
-                #     input_text = '.'.join(total_splited_input_ids)+'.'
-                # else:
-                #     input_text = batch_data['input_ids'].pop(-1)
-                #     labels = batch_data['labels'].pop(-1)
+        if task == 'denoising':
+            if dataset_name == 'c4':
+                if isinstance(input_ids, list):
+                    input_text = ' \n'.join(list(map(lambda x:x.strip(), input_ids)))
+                elif isinstance(input_ids, str):
+                    input_text = input_ids
+                
+                split_upper_bound = 1000
+                split_lower_bound = 100
+                total_input_text_len = len(input_text)
+                if total_input_text_len > split_upper_bound:
+                    # total_splited_input_ids = input_text.split('.')
+                    # while total_input_text_len > split_upper_bound:
+                    #     splited_input_ids = list()
+                    #     input_text_len = 0
+                    #     while input_text_len < split_upper_bound and total_splited_input_ids:
+                    #         input_text = total_splited_input_ids.pop(0)
+                    #         input_text_len += len(input_text)
+                    #         splited_input_ids.append(input_text)
+                    #     joined_input_ids = '.'.join(splited_input_ids)+'.'
+                    #     batch_data['input_ids'].append(joined_input_ids)
+                    #     # append dummpy labels
+                    #     batch_data['labels'].append(labels)
+                    #     input_text_len = len(joined_input_ids)
+                    #     total_input_text_len -= input_text_len
+                    # if total_splited_input_ids and total_input_text_len > split_lower_bound:
+                    #     input_text = '.'.join(total_splited_input_ids)+'.'
+                    # else:
+                    #     input_text = batch_data['input_ids'].pop(-1)
+                    #     labels = batch_data['labels'].pop(-1)
 
-                total_splited_input_ids = input_text.split('.')
-                splited_input_ids = list()
-                input_text_len = 0
-                while input_text_len < split_upper_bound:
-                    input_text = total_splited_input_ids.pop(0)
-                    input_text_len += len(input_text)+1
-                    splited_input_ids.append(input_text)
-                input_text = '.'.join(splited_input_ids)+'.'
-                    
-            denoise_config = kwargs['denoise_config']
-            iterate_num = 1
+                    total_splited_input_ids = input_text.split('.')
+                    splited_input_ids = list()
+                    input_text_len = 0
+                    while input_text_len < split_upper_bound:
+                        input_text = total_splited_input_ids.pop(0)
+                        input_text_len += len(input_text)+1
+                        splited_input_ids.append(input_text)
+                    input_text = '.'.join(splited_input_ids)+'.'
+
+            iterate_num = 1     
 
         # For IE tasks
         elif task in ['open_ie', 'closed_ie']:
@@ -304,7 +313,10 @@ def dataset_pre_func(
                 if task == "denoising":
                     joined_input_id, label = noise_data(input_text, tokenizer, **denoise_config)
                     user_input = DIALOG_TEMPLATE.format(joined_input_id)
-                    label_str = json.dumps(label, ensure_ascii=False)
+                    if isinstance(label, list):
+                        label_str = json.dumps(label, ensure_ascii=False)
+                    else:
+                        label_str = label
                     _create_input_and_label(tokenizer, dataset_type, system_prompt, user_input, label_str, preprocessed_input)
                                     
                 elif task in ['open_ie', 'closed_ie']:
@@ -392,16 +404,21 @@ def prepare_dataset(dataset_name, tokenizer, task, generate_intermediate_output,
     if generate_intermediate_output and model_for_predefined_intermediate_output:
         raise ValueError("Cannot generate intermediate output if the model for predefined intermediate output is provided.")
     
+    folder_name = "intermediate_result" if generate_intermediate_output else "direct_result"
+
     if dataset_name in ['allenai/c4', 'c4']:
+        mask_token = kwargs['denoise_config']['mask_token']
+        mask_token = mask_token if mask_token else 'special_token_as_mask'
+        folder_name = os.path.join(folder_name, mask_token)
         configs = 'realnewslike'
     else:
         configs = None
-    dataset = load_dataset(dataset_name, configs)
-    cache_file_name = os.path.join(cache_file_name, dataset_name)
-    folder_name = "intermediate_result" if generate_intermediate_output else "direct_result"
 
     if model_for_predefined_intermediate_output:
         folder_name = os.path.join(model_for_predefined_intermediate_output, str(PROMPT_NUM), 'merged' if MERGE_DIALOG_AND_TABLE else 'only_table')
+
+    dataset = load_dataset(dataset_name, configs)
+    cache_file_name = os.path.join(cache_file_name, dataset_name)
     
     train_cache_name = os.path.join(cache_file_name, task, folder_name, 'train.cache')
     validation_cache_name = os.path.join(cache_file_name, task, folder_name, 'validation.cache')
@@ -416,7 +433,7 @@ def prepare_dataset(dataset_name, tokenizer, task, generate_intermediate_output,
         validation=validation_cache_name,
         test=test_cache_name)
     
-    num_proc = 10 if dataset_name == 'dialog_re' else 20
+    num_proc = 10 if dataset_name == 'dialog_re' else 40
     if dataset_name == 'dialog_re':
         dataset = dataset.select_columns(['dialog', 'relation_data']).rename_columns(dict(dialog='input_ids', relation_data='labels'))
     
@@ -425,7 +442,7 @@ def prepare_dataset(dataset_name, tokenizer, task, generate_intermediate_output,
         set_seed(seed)
 
         train_dataset = dataset['train']
-        random_indices = np.random.choice(len(train_dataset), 50000, replace=True)
+        random_indices = np.random.choice(len(train_dataset), 500000, replace=True)
         train_dataset = train_dataset.select(random_indices)
 
         valid_dataset = dataset['validation']
