@@ -222,6 +222,26 @@ def dataset_pre_func(
                 split_lower_bound = 100
                 total_input_text_len = len(input_text)
                 if total_input_text_len > split_upper_bound:
+                    # total_splited_input_ids = input_text.split('.')
+                    # while total_input_text_len > split_upper_bound:
+                    #     splited_input_ids = list()
+                    #     input_text_len = 0
+                    #     while input_text_len < split_upper_bound and total_splited_input_ids:
+                    #         input_text = total_splited_input_ids.pop(0)
+                    #         input_text_len += len(input_text)
+                    #         splited_input_ids.append(input_text)
+                    #     joined_input_ids = '.'.join(splited_input_ids)+'.'
+                    #     batch_data['input_ids'].append(joined_input_ids)
+                    #     # append dummpy labels
+                    #     batch_data['labels'].append(labels)
+                    #     input_text_len = len(joined_input_ids)
+                    #     total_input_text_len -= input_text_len
+                    # if total_splited_input_ids and total_input_text_len > split_lower_bound:
+                    #     input_text = '.'.join(total_splited_input_ids)+'.'
+                    # else:
+                    #     input_text = batch_data['input_ids'].pop(-1)
+                    #     labels = batch_data['labels'].pop(-1)
+
                     total_splited_input_ids = input_text.split('.')
                     splited_input_ids = list()
                     input_text_len = 0
