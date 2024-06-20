@@ -274,13 +274,13 @@ def noise_data(
     tokenizer: PreTrainedTokenizerBase,
     r_denoising: bool = True,
     r_probability: float = 0.25,
-    r_denoising_config: Tuple[Tuple] = ((3, 0.15),),
+    r_denoising_config: List[List] = [[3, 0.15]],
     s_denoising: bool = True,
     s_probability: float = 0.5,
-    s_denoising_config: Tuple = (0.25,),
+    s_denoising_config: List = [0.25],
     x_denoising: bool = True,
     x_probability: float = 0.25,
-    x_denoising_config: Tuple[Tuple] = ((32, 0.5), (64, 0.2)),
+    x_denoising_config: List[List] = [[32, 0.5], [64, 0.2]],
     label_format: str = "json",
     mask_token: str = None,
     ):
@@ -396,7 +396,7 @@ def noise_data(
     else:
         config = r_denoising_config if task_type == 'r' else x_denoising_config
         mask_indice = None
-        for (mean_span, noise) in config:
+        for mean_span, noise in config:
             _mask_indice = random_spans_noise_mask(input_length, mean_span, noise)
             
             if mask_indice is None:

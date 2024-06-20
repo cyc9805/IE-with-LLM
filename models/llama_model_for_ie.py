@@ -317,13 +317,19 @@ class LlamaForIe(LlamaForCausalLM):
             # Ensure labels is a tensor
             if isinstance(labels, list):
                 labels = torch.tensor(labels).to(logits.device)
-                logging.info(f"Labels: {labels}\n")
 
-            # Shift so that tokens < n predict n
-            # Remove the logit for the last token of input_ids
-            shift_logits = logits[..., :-1, :].contiguous()
-            # Remove the label for the first token of input_ids
-            shift_labels = labels[..., 1:].contiguous()
+            try:
+                # Shift so that tokens < n predict n
+                # Remove the logit for the last token of input_ids
+                shift_logits = logits[..., :-1, :].contiguous()
+                # Remove the label for the first token of input_ids
+                shift_labels = labels[..., 1:].contiguous()
+            except:
+                for i, input_id in enumerate(input_ids):
+                    logging.debug(f'{i}-th input:')
+                    logging.debug(input_id)
+                    logging.debug('\n')
+                raise ValueError("Error in shifting logits and labels")
             # Flatten the tokens
             loss_fct = CrossEntropyLoss()
 

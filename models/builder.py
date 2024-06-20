@@ -12,7 +12,6 @@ MODELS = {
     "llama3": "meta-llama/Meta-Llama-3-8B",
     "llama3-instruct": "meta-llama/Meta-Llama-3-8B-instruct",
     "ie_llm" : "meta-llama/Meta-Llama-3-8B-instruct",
-    "gte-large": "Alibaba-NLP/gte-large-en-v1.5",
 }
 
 MODEL_DTYPES = {
@@ -20,8 +19,6 @@ MODEL_DTYPES = {
     "fp16": torch.float16,
     "default": torch.float32,
 }
-
-
 
 def load_model(model_name:str, peft_type:str=None, peft_ckpt_dir:str=None, model_dtype:str=MODEL_DTYPES['default'], noise_data:bool=False)-> Tuple[AutoModelForCausalLM, AutoTokenizer, List[str]]:
     if model_name not in MODELS:

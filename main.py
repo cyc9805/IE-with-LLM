@@ -57,16 +57,15 @@ def main(cfg):
     if task == 'denoising':
         denoise_config = {"r_denoising": True,
                         "r_probability": 0.445,
-                        "r_denoising_config": ((3, 0.15), (8, 0.15)),
+                        "r_denoising_config": [[3, 0.15]],
                         "s_denoising": True,
                         "s_probability": 0.11,
-                        "s_denoising_config": (0.25,),
+                        "s_denoising_config": [0.1],
                         "x_denoising": True,
                         "x_probability": 0.445,
-                        "x_denoising_config": ((3, 0.5), (8, 0.5), (12, 0.5), (32, 0.15)),
+                        "x_denoising_config": [[3, 0.5]],
                         "label_format": "json",
-                        "mask_token": None}
-                        # "mask_token": '<extra_id_{}>'}
+                        "mask_token": '<mask_id_{}>'}
         
         logging.info(f"Configuration for denoising task: {denoise_config}")
         cfg.update(denoise_config)
@@ -91,7 +90,7 @@ def main(cfg):
         # ds_config_file = None
 
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[logging.FileHandler(f"{output_dir}/run.log"),
                   RichHandler()])
