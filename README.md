@@ -1,7 +1,7 @@
 # IE with LLM
 
 ## Pre-requisites
-1. python > 3.10.0
+1. python >= 3.10.0
 2. Clone this repository:
 ```bash
 git clone https://github.com/cyc9805/IE-with-LLM.git
@@ -65,7 +65,7 @@ In configuration files, there are a few important configurations to take care of
 - `train_mode`: If set to `True`, it performs training. Otherwise, it performs testing.
 - `peft_type`: `lora` is the only supported PEFT method right now.
 - `peft_ckpt_dir`: To resume training or testing with previously trained PEFT model, provdie the directory to the adapter checkpoint. Otherwise, set to `null`.
-- `prefix_lm_mode`: The prefix attention used in IE with LLM currently has 3 different modes: 
+- `prefix_lm_mode`: The prefix attention used in IE with LLM currently has 4 different modes: 
     1. `only_input_text`: This mode enables full attention to user prompt.
     2. `only_system_prompt`: This mode enables full attention to system prompt.
     3. `all`: This mode enables full attention to both system prompt and user prompt.
