@@ -197,6 +197,7 @@ def dataset_pre_func(
                 elif isinstance(input_ids, str):
                     input_text = input_ids
                 
+                # Split text into segments where size does not exceed split_upper_bound
                 split_upper_bound = 1000
                 total_input_text_len = len(input_text)
                 if total_input_text_len > split_upper_bound:
