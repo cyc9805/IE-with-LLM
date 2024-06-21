@@ -5,13 +5,10 @@ import torch.utils.checkpoint
 from torch import nn
 from torch.nn import CrossEntropyLoss
 from typing import List, Tuple, Optional, Union
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModel, LlamaModel, LlamaConfig, LlamaForCausalLM
+from transformers import LlamaModel, LlamaConfig, LlamaForCausalLM
 from transformers.modeling_outputs import CausalLMOutputWithPast, BaseModelOutputWithPast
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
-from peft import PeftModel, PeftConfig, LoraConfig, get_peft_model, PromptTuningConfig, PeftType, TaskType, PromptTuningInit
-from ie_llm.utils import print_trainable_parameters, enable_peft_finetuning
-from ie_llm.prompt_tuning import PromptTuningConfigForIe
 
 class IeLlamaConfig(LlamaConfig):
     def __init__(

@@ -1,0 +1,11 @@
+nltk==3.8.1
+numpy==1.26.4
+pandas==2.2.2
+peft==0.11.1
+scipy==1.13.1
+sentencepiece==0.2.0
+tokenizers==0.19.1
+torch==2.3.0
+tqdm==4.66.4
+transformers==4.41.1
+wandb==0.17.0
