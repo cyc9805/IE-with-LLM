@@ -29,7 +29,7 @@ def main(cfg):
     prefix_lm_mode = cfg['prefix_lm_mode']
     wandb_run_id = cfg.get('wandb_run_id', now)
     evaluation_metrics = cfg.get('evaluation_metrics', ['f1'])
-    metric_for_best_model = cfg.get('metric_for_best_model', 'f1')
+    metric_for_best_model = cfg.get('metric_for_best_model', 'micro_f1_score')
 
     if task not in AVALIABLE_TASK:
         raise ValueError(f"task should be one of {AVALIABLE_TASK}, but got {task}")

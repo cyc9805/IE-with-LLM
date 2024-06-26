@@ -20,7 +20,7 @@
     "gradient_accumulation_steps": 1,
     "greater_is_better": true,
     "save_total_limit": 4,
-    "metric_for_best_model": "f1",
+    "metric_for_best_model": "micro_f1_score",
     "logging_steps": 1,
     "eval_steps": 50,
     "save_steps": 50,
