@@ -82,6 +82,7 @@ class ModelTrainer(Seq2SeqTrainer):
     def evaluate(
         self, 
         metric_key_prefix: str = "eval",
+        ignore_keys: str = None,
     ):
         # memory metrics - must set up as early as possible
         self._memory_tracker.start()
